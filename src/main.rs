@@ -1,26 +1,19 @@
 use serenity::client::Client;
-use serenity::model::channel::{Message, ReactionType};
-use serenity::prelude::{EventHandler, Context, TypeMapKey, RwLock};
+use serenity::prelude::*;
+use serenity::model::prelude::*;
 use serenity::framework::standard::{StandardFramework, CommandResult, help_commands, macros::{
 	command,
 	group,
 	help,
 }, Args, HelpOptions, CommandGroup};
 use std::env;
-use serenity::model::id::{UserId, RoleId};
 use std::collections::{HashSet, HashMap};
-use serenity::model::gateway::{Ready, Activity};
 use serde_derive::{Serialize, Deserialize};
 use serde_json::{from_reader, to_writer_pretty};
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter};
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLockWriteGuard, RwLockReadGuard};
-use std::hash::Hash;
-use std::borrow::Borrow;
-use serenity::prelude::*;
-use serenity::model::prelude::*;
-use std::iter::FromIterator;
+use std::sync::Arc;
 use std::time::Duration;
 
 group!({
@@ -269,7 +262,6 @@ fn list(ctx: &mut Context, msg: &Message) -> CommandResult {
 
 	let cfg_guard = get_cfg(ctx);
 	let cfg = cfg_guard.read();
-	let aliases = cfg.get_aliases().clone();
 
 	let roles = cfg.get_roles().iter().filter_map(|id| {
 		let aliases = cfg.get_aliases().iter().filter_map(|(a, r)| if r == id { Some(format!("`{}`", a.clone())) } else { None }).collect::<Vec<_>>();

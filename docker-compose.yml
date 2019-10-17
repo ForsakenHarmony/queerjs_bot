@@ -1,5 +1,10 @@
+version: "3"
+
 services:
   bot:
+    image: r.hrmny.sh/queerjs_bot:latest
     build: .
     volumes:
-      - /app/data:./data
+      - ./data:/app/data
+    environment:
+      - "DISCORD_TOKEN=${DISCORD_TOKEN}"

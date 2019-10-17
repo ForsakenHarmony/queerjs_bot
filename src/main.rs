@@ -148,9 +148,11 @@ impl EventHandler for Handler {
 }
 
 fn main() {
+	println!("Token?");
 	// Login with a bot token from the environment
 	let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
 		.expect("Error creating client");
+	println!("Token!");
 
 	{
 		let mut data = client.data.write();
@@ -382,23 +384,25 @@ fn remove(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
 fn create_role(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
 	let role: String = args.single()?;
 
-	let guild = match msg.guild(&ctx) {
-		Some(g) => g,
-		_ => return send_reject_with_msg(ctx, msg, "Not in a guild?"),
-	};
-	let guild = guild.read();
+	{
+		let guild = match msg.guild(&ctx) {
+			Some(g) => g,
+			_ => return send_reject_with_msg(ctx, msg, "Not in a guild?"),
+		};
+		let guild = guild.read();
 
-	if let Some(_) = guild.role_by_name(&role) {
-		return send_reject_with_msg(ctx, msg, "A role with that name already exists");
+		if let Some(_) = guild.role_by_name(&role) {
+			return send_reject_with_msg(ctx, msg, "A role with that name already exists");
+		}
+
+		let role = guild.create_role(&ctx, |r| {
+			r.name(role);
+			r
+		})?;
+
+		let cfg = get_cfg(ctx);
+		cfg.write().add_role(*role.id.as_u64());
 	}
-
-	let role = guild.create_role(&ctx, |r| {
-		r.name(role);
-		r
-	})?;
-
-	let cfg = get_cfg(ctx);
-	cfg.write().add_role(*role.id.as_u64());
 
 	send_ok(ctx, msg)
 }
@@ -452,20 +456,21 @@ fn alias_role(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult
 #[required_permissions(MANAGE_ROLES)]
 fn allow_role(ctx: &mut Context, msg: &Message, mut args: Args) -> CommandResult {
 	let role: String = args.single()?;
+	{
+		let guild = match msg.guild(&ctx) {
+			Some(g) => g,
+			_ => return send_reject_with_msg(ctx, msg, "Not in a guild?"),
+		};
+		let guild = guild.read();
 
-	let guild = match msg.guild(&ctx) {
-		Some(g) => g,
-		_ => return send_reject_with_msg(ctx, msg, "Not in a guild?"),
-	};
-	let guild = guild.read();
+		let role = match guild.role_by_name(&role) {
+			Some(r) => r,
+			_ => return send_reject_with_msg(ctx, msg, "Role not found"),
+		};
 
-	let role = match guild.role_by_name(&role) {
-		Some(r) => r,
-		_ => return send_reject_with_msg(ctx, msg, "Role not found"),
-	};
-
-	let cfg = get_cfg(ctx);
-	cfg.write().add_role(*role.id.as_u64());
+		let cfg = get_cfg(ctx);
+		cfg.write().add_role(*role.id.as_u64());
+	}
 
 	send_ok(ctx, msg)
 }

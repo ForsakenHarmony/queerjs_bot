@@ -20,6 +20,8 @@ RUN cargo build --release
 RUN cp /app/build/target/release/queerjs_bot /app/queerjs_bot \
  && chmod +x /app/queerjs_bot
 
-RUN rm -rf /app
+RUN rm -rf /app/build
 
-ENTRYPOINT /app/queerjs_bot
+WORKDIR /app
+
+CMD /app/queerjs_bot

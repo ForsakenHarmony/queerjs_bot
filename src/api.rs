@@ -4,6 +4,7 @@ use serenity::framework::standard::{CommandResult, CommandError};
 use crate::store::{Config, ConfigKey};
 use lock_api::{RwLockReadGuard, RwLockWriteGuard};
 use parking_lot::RawRwLock;
+use std::sync::Arc;
 
 type DiscordResult<T> = ::std::result::Result<T, CommandError>;
 type ReadGuard<'a, T> = RwLockReadGuard<'a, RawRwLock, T>;
@@ -24,17 +25,23 @@ impl<'a> Api<'a> {
 }
 
 impl<'a> Api<'a> {
-	fn get_cfg<'b>(&self) -> ReadGuard<'b, Config> {
+	fn get_cfg(&self) -> Arc<RwLock<Config>> {
 		let data = self.ctx.data.write();
-		let cfg = data.get::<ConfigKey>().expect("Should have Config").clone();
-		cfg.read()
+		data.get::<ConfigKey>().expect("Should have Config").clone()
 	}
-
-	fn get_cfg_mut<'b>(&self) -> WriteGuard<Config> {
-		let data = self.ctx.data.write();
-		let cfg = data.get::<ConfigKey>().expect("Should have Config").clone();
-		cfg.write()
-	}
+// Does not please the crab
+//
+//	fn get_cfg<'b>(&self) -> &'b Config {
+//		let data: WriteGuard<'b, ShareMap> = self.ctx.data.write();
+//		let cfg = data.get::<ConfigKey>().expect("Should have Config").clone();
+//		&*cfg.read()
+//	}
+//
+//	fn get_cfg_mut<'b>(&self) -> WriteGuard<'b, Config> {
+//		let data = self.ctx.data.write();
+//		let cfg = data.get::<ConfigKey>().expect("Should have Config").clone();
+//		cfg.write()
+//	}
 
 	fn send_ok(&self) -> CommandResult {
 		self.msg.react(&self.ctx, ReactionType::Unicode("✅".to_string()))?;
@@ -54,6 +61,7 @@ impl<'a> Api<'a> {
 
 	fn lookup_role<'b>(&self, guild: &'b Guild, role: String) -> Option<&'b Role> {
 		let cfg = self.get_cfg();
+		let cfg = cfg.read();
 		let alias = cfg.resolve_alias(&role);
 
 		alias
@@ -61,21 +69,38 @@ impl<'a> Api<'a> {
 			.or_else(|| guild.role_by_name(&role))
 	}
 
-	fn guild_or_reject<'b>(&self, reason: impl AsRef<str>) -> DiscordResult<ReadGuard<Guild>> {
+	fn guild_or_reject<'b>(&self) -> DiscordResult<Arc<RwLock<Guild>>> {
 		let guild = match self.msg.guild(&self.ctx) {
 			Some(g) => g,
-			_ => return self.send_reject_with_msg(reason),
+			_ => return self.send_reject_with_msg("Not in a guild?"),
 		};
-		let guild = guild.read();
 		Ok(guild)
+	}
+
+	fn role_or_reject<'b>(&self, guild: &'b Guild, role: String) -> DiscordResult<&'b Role> {
+		let role = match self.lookup_role(&guild, role) {
+			Some(r) => r,
+			_ => return self.send_reject_with_msg("Role not found"),
+		};
+		Ok(role)
+	}
+
+	fn assert_role_allowed(&self, role: &Role) -> DiscordResult<()> {
+		let cfg = self.get_cfg();
+		let cfg = cfg.read();
+		let roles = cfg.get_roles();
+		if !roles.contains(&role.id.as_u64()) { return self.send_reject_with_msg("Not an allowed role"); }
+		Ok(())
 	}
 }
 
 impl<'a> Api<'a> {
 	pub fn list_roles(&self) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
 
 		let cfg = self.get_cfg();
+		let cfg = cfg.read();
 
 		let roles = cfg.get_roles().iter().filter_map(|id| {
 			let aliases = cfg.get_aliases().iter().filter_map(|(a, r)| if r == id { Some(format!("`{}`", a.clone())) } else { None }).collect::<Vec<_>>();
@@ -102,16 +127,11 @@ impl<'a> Api<'a> {
 	}
 
 	pub fn add_role(&self, role: String) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
+		let role = self.role_or_reject(&guild, role)?;
 
-		let role = match self.lookup_role(&guild, role) {
-			Some(r) => r,
-			_ => return self.send_reject_with_msg("Role not found"),
-		};
-
-		let cfg = self.get_cfg();
-		let roles = cfg.get_roles();
-		if !roles.contains(&role.id.as_u64()) { return self.send_reject_with_msg("Not an allowed role"); }
+		self.assert_role_allowed(role)?;
 
 		let mut member = self.msg.member(&self.ctx).expect("We already checked this");
 
@@ -126,19 +146,13 @@ impl<'a> Api<'a> {
 	}
 
 	pub fn remove_role(&self, role: String) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
+		let role = self.role_or_reject(&guild, role)?;
 
-		let role = match self.lookup_role(&guild, role) {
-			Some(r) => r,
-			_ => return self.send_reject_with_msg("Role not found"),
-		};
+		self.assert_role_allowed(role)?;
 
-		let cfg = self.get_cfg();
-//		let cfg = cfg_guard.read();
-		let roles = cfg.get_roles();
-		if !roles.contains(&role.id.as_u64()) { return self.send_reject_with_msg("Not an allowed role"); }
-
-		let mut member = self.msg.member(&self.ctx).expect("We already checked this");
+		let mut member = guild.member(&self.ctx, self.msg.author.id).expect("We already checked this");
 
 		if let None = member.roles(&self.ctx).expect("Users always have roles").iter().find(|p| p.id == role.id) {
 			return self.send_reject_with_msg("You don't have this role");
@@ -151,7 +165,8 @@ impl<'a> Api<'a> {
 	}
 
 	pub fn create_role(&self, role: String) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
 
 		if let Some(_) = guild.role_by_name(&role) {
 			return self.send_reject_with_msg("A role with that name already exists");
@@ -162,22 +177,21 @@ impl<'a> Api<'a> {
 			r
 		})?;
 
-		let mut cfg = self.get_cfg_mut();
+		let cfg = self.get_cfg();
+		let mut cfg = cfg.write();
 		cfg.add_role(*role.id.as_u64());
 
 		Ok(())
 	}
 
 	pub fn alias_role(&self, role: String, alias: String) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
-
-		let role = match guild.role_by_name(&role) {
-			Some(r) => r,
-			_ => return self.send_reject_with_msg("Role not found"),
-		};
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
+		let role = self.role_or_reject(&guild, role)?;
 
 		{
 			let cfg = self.get_cfg();
+			let cfg = cfg.read();
 			let roles = cfg.get_roles();
 			if !roles.contains(&role.id.as_u64()) { return self.send_reject_with_msg("Not an allowed role (aliases are only possible for allowed roles)"); }
 		}
@@ -185,7 +199,8 @@ impl<'a> Api<'a> {
 		{
 			println!("wew");
 
-			let mut cfg = self.get_cfg_mut();
+			let cfg = self.get_cfg();
+			let mut cfg = cfg.write();
 			println!("myb?");
 			cfg.add_alias(*role.id.as_u64(), alias);
 
@@ -196,35 +211,27 @@ impl<'a> Api<'a> {
 	}
 
 	pub fn allow_role(&self, role: String) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
+		let role = self.role_or_reject(&guild, role)?;
 
-		let role = match guild.role_by_name(&role) {
-			Some(r) => r,
-			_ => return self.send_reject_with_msg("Role not found"),
-		};
-
-		let mut cfg = self.get_cfg_mut();
+		let cfg = self.get_cfg();
+		let mut cfg = cfg.write();
 		cfg.add_role(*role.id.as_u64());
 
 		Ok(())
 	}
 
 	pub fn deny_role(&self, role: String) -> CommandResult {
-		let guild = self.guild_or_reject("Not in a guild?")?;
+		let guild = self.guild_or_reject()?;
+		let guild = guild.read();
+		let role = self.role_or_reject(&guild, role)?;
 
-		let role = match guild.role_by_name(&role) {
-			Some(r) => r,
-			_ => return self.send_reject_with_msg("Role not found"),
-		};
+		self.assert_role_allowed(role)?;
 
 		{
 			let cfg = self.get_cfg();
-			let roles = cfg.get_roles();
-			if !roles.contains(&role.id.as_u64()) { return self.send_reject_with_msg("Not an allowed role"); }
-		}
-
-		{
-			let mut cfg = self.get_cfg_mut();
+			let mut cfg = cfg.write();
 			cfg.remove_role(*role.id.as_u64());
 		}
 

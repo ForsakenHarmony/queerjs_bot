@@ -1,27 +1,37 @@
-FROM rust:slim
-
-RUN echo "increment for cache busting: 0"
-
-#RUN apt-get update && apt-get install -y build-essential \
-#    llvm-3.9-dev libclang-3.9-dev clang-3.9
-
-WORKDIR /app/build
-
-# Hack to cache the dependency builds.
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir src
-RUN echo "fn main() {} // This is a hack" >> src/main.rs
-RUN cargo build --release
-RUN rm -f src/*.rs
-
-COPY ./src ./src
-RUN cargo build --release
-
-RUN cp /app/build/target/release/queerjs_bot /app/queerjs_bot \
- && chmod +x /app/queerjs_bot
-
-RUN rm -rf /app/build
+FROM rust:slim-buster as build
 
 WORKDIR /app
 
-CMD /app/queerjs_bot
+RUN echo "increment for cache busting: 0"
+
+RUN mkdir src
+RUN echo "fn main() {} // This is a hack" >> src/main.rs
+
+# copy over your manifests
+COPY ./Cargo.lock ./Cargo.lock
+COPY ./Cargo.toml ./Cargo.toml
+
+# this build step will cache your dependencies
+RUN cargo build --release
+RUN rm src/*.rs
+
+# copy over real source
+COPY ./src ./src
+
+# build for release
+RUN rm ./target/release/deps/queerjs*
+RUN cargo build --release
+
+FROM debian:buster-slim
+
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates; \
+    rm -rf /var/lib/apt/lists/*;
+
+WORKDIR /app
+
+COPY --from=build /app/target/release/queerjs_bot ./
+RUN chmod +x ./queerjs_bot
+
+CMD ./queerjs_bot

@@ -44,8 +44,10 @@ fn main() {
 		data.insert::<ConfigKey>(Arc::new(RwLock::new(config)));
 	}
 
+	let prefix = env::var("BOT_PREFIX").unwrap_or("!".to_string());
+
 	client.with_framework(StandardFramework::new()
-		.configure(|c| c.prefix("~")) // set the bot's prefix to "~"
+		.configure(|c| c.prefix(&prefix))
 		.group(&GENERAL_GROUP)
 		.group(&ROLES_GROUP)
 		.help(&MY_HELP)

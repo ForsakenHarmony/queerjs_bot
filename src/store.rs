@@ -1,21 +1,24 @@
-use std::collections::HashMap;
-use std::path::{PathBuf, Path};
-use serenity::prelude::{TypeMapKey, RwLock};
-use std::sync::Arc;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_reader, to_writer_pretty};
-use serde_derive::{Serialize, Deserialize};
+use serenity::prelude::{RwLock, TypeMapKey};
+use std::{
+	collections::HashMap,
+	fs::File,
+	io::{BufReader, BufWriter},
+	path::{Path, PathBuf},
+	sync::Arc,
+};
+use tracing::debug;
 
 #[derive(Serialize, Deserialize)]
 struct InnerConfig {
 	allowed_roles: Vec<u64>,
-	aliases: HashMap<String, u64>,
+	aliases:       HashMap<String, u64>,
 }
 
 pub struct Config {
 	inner_config: InnerConfig,
-	path: PathBuf,
+	path:         PathBuf,
 }
 
 pub struct ConfigKey;
@@ -30,7 +33,9 @@ impl Config {
 	}
 
 	pub(crate) fn add_role(&mut self, role: u64) {
-		if self.inner_config.allowed_roles.contains(&role) { return; }
+		if self.inner_config.allowed_roles.contains(&role) {
+			return;
+		}
 
 		self.inner_config.allowed_roles.push(role);
 
@@ -38,10 +43,23 @@ impl Config {
 	}
 
 	pub(crate) fn remove_role(&mut self, role: u64) {
-		if !self.inner_config.allowed_roles.contains(&role) { return; }
+		if !self.inner_config.allowed_roles.contains(&role) {
+			return;
+		}
 
-		self.inner_config.allowed_roles.remove(self.inner_config.allowed_roles.iter().position(|r| &role == r).unwrap());
-		let to_remove = self.inner_config.aliases.iter().filter_map(|(a, r)| if *r == role { Some(a.clone()) } else { None }).collect::<Vec<_>>();
+		self.inner_config.allowed_roles.remove(
+			self.inner_config
+				.allowed_roles
+				.iter()
+				.position(|r| &role == r)
+				.unwrap(),
+		);
+		let to_remove = self
+			.inner_config
+			.aliases
+			.iter()
+			.filter_map(|(a, r)| if *r == role { Some(a.clone()) } else { None })
+			.collect::<Vec<_>>();
 		to_remove.iter().for_each(|a| {
 			self.inner_config.aliases.remove(a);
 		});
@@ -50,14 +68,16 @@ impl Config {
 	}
 
 	pub(crate) fn add_alias(&mut self, role: u64, alias: String) {
-		if !self.inner_config.allowed_roles.contains(&role) { return; }
+		if !self.inner_config.allowed_roles.contains(&role) {
+			return;
+		}
 
 		self.inner_config.aliases.insert(alias, role);
 
 		self.save();
 	}
 
-	fn remove_alias(&mut self, alias: String) {
+	pub(crate) fn remove_alias(&mut self, alias: String) {
 		self.inner_config.aliases.remove(&alias);
 
 		self.save();
@@ -72,12 +92,14 @@ impl Config {
 	}
 
 	fn create<P: AsRef<Path>>(path: P) -> Config {
+		debug!("creating new data file");
+
 		let cfg = Config {
 			inner_config: InnerConfig {
 				allowed_roles: Vec::new(),
-				aliases: HashMap::new(),
+				aliases:       HashMap::new(),
 			},
-			path: PathBuf::from(path.as_ref()),
+			path:         PathBuf::from(path.as_ref()),
 		};
 
 		cfg.save();
@@ -99,7 +121,7 @@ impl Config {
 
 		Config {
 			inner_config: inner,
-			path: PathBuf::from(path.as_ref()),
+			path:         PathBuf::from(path.as_ref()),
 		}
 	}
 

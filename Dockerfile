@@ -34,4 +34,6 @@ WORKDIR /app
 COPY --from=build /app/target/release/queerjs_bot ./
 RUN chmod +x ./queerjs_bot
 
+COPY ./.env.example ./.env
+
 CMD ./queerjs_bot

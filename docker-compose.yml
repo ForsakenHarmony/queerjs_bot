@@ -3,8 +3,11 @@ version: "3"
 services:
   bot:
     image: r.hrmny.sh/queerjs_bot:latest
+    restart: unless-stopped
     build: .
     volumes:
       - ./data:/app/data
     environment:
       - "DISCORD_TOKEN=${DISCORD_TOKEN}"
+      - "BOT_PREFIX=."
+      - "RUST_LOG=info"

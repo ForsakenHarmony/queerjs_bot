@@ -83,7 +83,7 @@ async fn main() {
 
 	let sub = FmtSubscriber::builder()
 		.pretty()
-		.compact()
+		// .compact()
 		.with_env_filter(EnvFilter::from_default_env())
 		.finish();
 

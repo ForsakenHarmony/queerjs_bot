@@ -10,4 +10,3 @@ services:
     environment:
       - "DISCORD_TOKEN=${DISCORD_TOKEN}"
       - "BOT_PREFIX=."
-      - "RUST_LOG=info"

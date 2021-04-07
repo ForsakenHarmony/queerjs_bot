@@ -44,7 +44,7 @@ impl<'a> Api<'a> {
 		let response = self.msg.reply(&self.ctx, reason.clone()).await?;
 		let http = self.ctx.http.clone();
 		tokio::spawn(async move {
-			tokio::time::delay_for(Duration::from_secs(5)).await;
+			tokio::time::sleep(Duration::from_secs(5)).await;
 			if let Err(why) = response.delete(http).await {
 				error!("failed to delete rejection message: {:?}", why);
 			}
